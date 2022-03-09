@@ -1,0 +1,90 @@
+import torch
+
+import alf
+import alf.algorithms.merlin_algorithm
+import alf.environments.suite_carla
+
+CameraSensor.image_size_x=64
+CameraSensor.image_size_y=64
+CameraSensor.fov=135
+
+create_environment.env_name='Town01'
+create_environment.env_load_fn=@suite_carla.load
+create_environment.num_parallel_environments=4
+
+use_batch_normalization=False
+BottleneckBlock.with_batch_normalization=%use_batch_normalization
+preproc_bn=True
+
+
+
+# move it here so all are shared
+ActionSequenceOneStepWrapper.shrinkage_th=3
+
+suite_carla.Player.success_speed_thresh=1e-3
+
+suite_carla.Player.with_gnss_sensor=False
+
+suite_carla.Player.with_radar_sensor=0
+suite_carla.Player.with_camera_sensor=1
+
+# remove prev traj, unnecessary
+suite_carla.Player.max_prev_traj=0
+# add pose for common processing
+suite_carla.Player.add_pose=True
+
+camera_spec = alf.nest.get_field(%observation_spec, "observation.camera")
+#radar_spec = alf.nest.get_field(%observation_spec, "observation.radar")
+pose_spec = alf.nest.get_field(%observation_spec, "observation.pose")
+#prev_traj_spec = alf.nest.get_field(%observation_spec, "observation.prev_traj")
+collision_spec = alf.nest.get_field(%observation_spec, "observation.collision")
+#gnss_spec = alf.nest.get_field(%observation_spec, "observation.gnss")
+imu_spec = alf.nest.get_field(%observation_spec, "observation.imu")
+goal_spec = alf.nest.get_field(%observation_spec, "observation.goal")
+velocity_spec = alf.nest.get_field(%observation_spec, "observation.velocity")
+navigation_spec = alf.nest.get_field(%observation_spec, "observation.navigation")
+prev_action_spec = alf.nest.get_field(%observation_spec, "prev_action")
+
+observation_preprocessors = {
+    "camera": @ResnetEncodingNetwork(input_tensor_spec=%camera_spec, output_size=%encoding_dim, output_activation=alf.math.identity, use_fc_bn=%preproc_bn),
+    #"radar": torch.nn.Sequential(alf.layers.Reshape([-1]), alf.layers.FC(@flattened_size(%radar_spec), %encoding_dim, use_bias=False, use_bn=%preproc_bn)),
+    "pose": torch.nn.Sequential(alf.layers.Reshape([-1]), alf.layers.FC(@flattened_size(%pose_spec), %encoding_dim, use_bias=False, use_bn=%preproc_bn)),
+    #"prev_traj": torch.nn.Sequential(alf.layers.Reshape([-1]), alf.layers.FC(@flattened_size(%prev_traj_spec), %encoding_dim, use_bias=False, use_bn=%preproc_bn)),
+    "collision": torch.nn.Sequential(alf.layers.Reshape([-1]), alf.layers.FC(@flattened_size(%collision_spec), %encoding_dim, use_bias=False, use_bn=%preproc_bn)),
+    #"gnss": torch.nn.Sequential(alf.layers.Reshape([-1]), alf.layers.FC(@flattened_size(%gnss_spec), %encoding_dim, use_bias=False, use_bn=%preproc_bn)),
+    "imu": torch.nn.Sequential(alf.layers.Reshape([-1]), alf.layers.FC(@flattened_size(%imu_spec), %encoding_dim, use_bias=False, use_bn=%preproc_bn)),
+    "goal": torch.nn.Sequential(alf.layers.Reshape([-1]), alf.layers.FC(@flattened_size(%goal_spec), %encoding_dim, use_bias=False, use_bn=%preproc_bn)),
+    "velocity": torch.nn.Sequential(alf.layers.Reshape([-1]), alf.layers.FC(@flattened_size(%velocity_spec), %encoding_dim, use_bias=False, use_bn=%preproc_bn)),
+    "navigation": torch.nn.Sequential(alf.layers.Reshape([-1]), alf.layers.FC(@flattened_size(%navigation_spec), %encoding_dim, use_bias=False, use_bn=%preproc_bn)),
+}
+
+input_preprocessors={
+    'observation': %observation_preprocessors,
+    'prev_action': torch.nn.Sequential(alf.layers.Reshape([-1]), alf.layers.FC(@flattened_size(%prev_action_spec), %encoding_dim, use_bias=False, use_bn=%preproc_bn)),
+}
+
+
+
+
+observation_preprocessors_mask = {
+    "camera": 1,
+    #"radar": 1,
+    "pose": 0,
+    #"prev_traj": 0,
+    "collision": 0,
+    #"gnss": 1,
+    "imu": 1,
+    "goal": 1,
+    "velocity": 1,
+    "navigation": 1,
+}
+
+input_preprocessors_mask={
+    'observation': %observation_preprocessors_mask,
+    'prev_action': 1,
+}
+
+
+import alf.environments.alf_wrappers
+
+suite_carla.load.wrappers=[@ActionObservationWrapper]

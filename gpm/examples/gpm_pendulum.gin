@@ -1,0 +1,38 @@
+
+include 'gpm.gin'
+
+#-----------ENV-----------
+NUM_PARALLEL_ENVIRONMENTS=1
+env_name="Pendulum-v0"
+
+
+#-----------Train Params---------
+num_env_steps=10000
+initial_collect_steps=1000
+replay_buffer_length=10000
+
+mini_batch_size=64
+mini_batch_length=1
+unroll_length=1
+
+layer_size=100
+fc_layer_params=(%layer_size, %layer_size)
+actor_fc_layers_params=(%layer_size, %layer_size)
+
+
+plan_length=3
+num_of_anchors=3
+min_target_commit_prob=1.5
+
+
+lr=5e-4
+
+
+TrainerConfig.evaluate=1
+TrainerConfig.eval_interval=400
+
+
+TrainerConfig.summarize_grads_and_vars=0
+
+
+TrainerConfig.num_eval_episodes=1

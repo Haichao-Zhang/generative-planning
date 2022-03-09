@@ -1,0 +1,176 @@
+import alf
+import alf.environments.alf_wrappers
+import alf.utils.math_ops
+import alf.algorithms.td_loss
+
+
+import gpm.algorithms.gp_inner_algorithm
+import gpm.algorithms.generative_planning_agent
+
+
+#-----------ENV BEGIN-----------
+create_environment.env_name=%env_name
+create_environment.num_parallel_environments=%NUM_PARALLEL_ENVIRONMENTS
+
+observation_spec=@get_observation_spec()
+action_spec=@get_action_spec()
+#-----------ENV END-------------
+
+
+actor_hidden_size=256
+actor_hidden_factor=2
+
+
+
+num_unroll_steps=%plan_length # for mutli-step Q-learning
+action_to_world_conversion=0
+smooth_weight=0
+
+projection_output_init_gain_mean=0.3
+projection_output_init_gain_std=0.3
+std_bias_initializer_value=0
+std_discount=1
+init_epsilon=0
+num_updates_per_train_iter=1
+
+averager_update_rate=1e-3
+lr_eps=%averager_update_rate
+
+
+actor/AdamTF.lr=%lr
+actor/AdamTF.gradient_clipping=%grad_clip_val
+actor/AdamTF.clip_by_global_norm=%clip_by_global_norm
+critic/AdamTF.lr=%lr
+critic/AdamTF.gradient_clipping=%grad_clip_val
+critic/AdamTF.clip_by_global_norm=%clip_by_global_norm
+alpha/AdamTF.lr=%lr
+alpha/AdamTF.gradient_clipping=%grad_clip_val
+alpha/AdamTF.clip_by_global_norm=%clip_by_global_norm
+eps/AdamTF.lr=%lr_eps
+eps/AdamTF.gradient_clipping=%grad_clip_val
+eps/AdamTF.clip_by_global_norm=%clip_by_global_norm
+
+GpInnerAlgorithm.actor_optimizer=@actor/AdamTF()
+GpInnerAlgorithm.critic_optimizer=@critic/AdamTF()
+GpInnerAlgorithm.alpha_optimizer=@alpha/AdamTF()
+GpInnerAlgorithm.epsilon_optimizer=@eps/AdamTF()
+
+
+# algorithm config
+#----RNN projection
+actor/RecurrentNormalProjectionNetwork.num_of_anchors=%num_of_anchors
+actor/RecurrentNormalProjectionNetwork.hidden_size=%layer_size
+# None: there is a last linear layer
+actor/RecurrentNormalProjectionNetwork.mean_proj_fc_layer_params=None
+actor/RecurrentNormalProjectionNetwork.res_mean_proj_fc_layer_params=(%layer_size, )
+actor/RecurrentNormalProjectionNetwork.hidden_size_factor=%actor_hidden_factor
+actor/RecurrentNormalProjectionNetwork.state_dependent_std=True
+actor/RecurrentNormalProjectionNetwork.projection_output_init_gain_mean=%projection_output_init_gain_mean
+actor/RecurrentNormalProjectionNetwork.projection_output_init_gain_std=%projection_output_init_gain_std
+# so that after softplus, it is a small positive value
+actor/RecurrentNormalProjectionNetwork.std_bias_initializer_value=%std_bias_initializer_value
+actor/RecurrentNormalProjectionNetwork.std_discount=%std_discount
+
+actor/ActorDistributionNetwork.fc_layer_params=%actor_fc_layers_params
+#actor/ActorDistributionNetwork.activation=%activation
+actor/ActorDistributionNetwork.continuous_projection_net_ctor=@actor/RecurrentNormalProjectionNetwork
+
+
+GpInnerAlgorithm.action_to_world_conversion=%action_to_world_conversion
+GpInnerAlgorithm.actor_network_cls=@actor/ActorDistributionNetwork
+
+
+GpInnerAlgorithm.target_update_tau=0.005
+GpInnerAlgorithm.use_entropy_reward=1
+GpInnerAlgorithm.averager_update_rate=%averager_update_rate
+
+calc_default_target_entropy.min_prob=0.1
+GpInnerAlgorithm.target_entropy=@calc_default_target_entropy
+
+GpInnerAlgorithm.num_critic_replicas=2
+GpInnerAlgorithm.use_target_reward_model=1
+GpInnerAlgorithm.critic_param_form="standard"
+GpInnerAlgorithm.replan_method="q"
+GpInnerAlgorithm.interp_method="linear"
+GpInnerAlgorithm.mini_batch_length=%mini_batch_length
+GpInnerAlgorithm.num_of_anchors=%num_of_anchors
+GpInnerAlgorithm.plan_length=%plan_length
+GpInnerAlgorithm.smooth_weight=%smooth_weight
+GpInnerAlgorithm.init_epsilon=%init_epsilon
+GpInnerAlgorithm.min_target_commit_prob=%min_target_commit_prob
+
+LowLevelActionSequenceOneStepWrapper.plan_length=%plan_length
+# for general gym
+suite_gym.load.alf_env_wrappers=[@LowLevelActionSequenceOneStepWrapper]
+
+
+# use scope as q_encoder to avoid confliction with other general encoder scopes
+
+#----------- AutoRegressiveQNetwork ----------
+#q_encoder/EncodingNetwork.activation=%activation
+q_encoder/EncodingNetwork.fc_layer_params=(%layer_size,)
+q/AutoRegressiveQNetwork.encoding_net_ctor=@q_encoder/EncodingNetwork
+
+
+dynamics/LSTMEncodingNetwork.hidden_size=%layer_size
+#dynamics/LSTMEncodingNetwork.post_fc_layer_params=(%layer_size, )
+q/AutoRegressiveQNetwork.dynamics_net_ctor=@dynamics/LSTMEncodingNetwork
+
+q/AutoRegressiveQNetwork.num_unroll_steps=%plan_length
+
+
+
+q_decoder/EncodingNetwork.fc_layer_params=%fc_layer_params
+q_decoder/EncodingNetwork.last_layer_size=1
+q_decoder/EncodingNetwork.last_activation=@identity
+q/AutoRegressiveQNetwork.decoding_net_ctor=@q_decoder/EncodingNetwork
+
+GpInnerAlgorithm.q_network_cls=@q/AutoRegressiveQNetwork
+#============================
+
+
+
+
+
+GenerativePlanningAgent.num_unroll_steps=%num_unroll_steps
+GenerativePlanningAgent.action_to_world_conversion=%action_to_world_conversion
+GenerativePlanningAgent.num_of_anchors=%num_of_anchors
+GenerativePlanningAgent.plan_length=%plan_length
+GenerativePlanningAgent.mini_batch_length=%mini_batch_length
+TrainerConfig.algorithm_ctor=@GenerativePlanningAgent
+#------------------
+
+
+
+# training config
+TrainerConfig.initial_collect_steps=%initial_collect_steps
+TrainerConfig.mini_batch_length=%mini_batch_length
+TrainerConfig.unroll_length=%unroll_length
+TrainerConfig.mini_batch_size=%mini_batch_size
+TrainerConfig.num_updates_per_train_iter=%num_updates_per_train_iter
+TrainerConfig.whole_replay_buffer_training=False
+TrainerConfig.clear_replay_buffer=False
+TrainerConfig.num_iterations=0
+TrainerConfig.num_env_steps=%num_env_steps
+TrainerConfig.num_checkpoints=5
+TrainerConfig.evaluate=False
+TrainerConfig.debug_summaries=True
+TrainerConfig.summarize_grads_and_vars=0
+TrainerConfig.summary_interval=100
+TrainerConfig.replay_buffer_length=%replay_buffer_length
+
+TrainerConfig.use_rollout_state=1
+ReplayBuffer.keep_episodic_info=True
+ReplayBuffer.enable_checkpoint=False
+TrainerConfig.temporally_independent_train_step=True
+
+
+
+grad_clip_val = None
+clip_by_global_norm=True
+
+
+GpInnerAlgorithm.stochastic_replan=True
+actor/RecurrentNormalProjectionNetwork.use_full_plan_noise=False
+
+actor/RecurrentNormalProjectionNetwork.use_res_delta=False
